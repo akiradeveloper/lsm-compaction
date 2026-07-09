@@ -1345,9 +1345,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ceec5bc11778974d1bcb055b18002eba7f4b3518b6a0081b3af5f21666da9ad"
 
 [[package]]
+name = "lsm-compaction"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "cubecl",
+ "massively",
+]
+
+[[package]]
 name = "massively"
-version = "0.59.0"
-source = "git+https://github.com/akiradeveloper/massively.git?tag=v0.59#62ec45630bb30f0852a49c0ce393daffef8e961b"
+version = "0.60.0"
+source = "git+https://github.com/akiradeveloper/massively.git?tag=v0.60#e4c0e811780d6a50a5254309ec1f2c92b17c82fe"
 dependencies = [
  "cubecl",
  "futures-lite",
@@ -2044,15 +2053,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
-]
-
-[[package]]
-name = "tiny-lsm"
-version = "0.1.0"
-dependencies = [
- "clap",
- "cubecl",
- "massively",
 ]
 
 [[package]]

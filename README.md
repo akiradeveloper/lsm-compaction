@@ -1,6 +1,6 @@
-# tiny-lsm
+# lsm-compaction
 
-`tiny-lsm` is a small demo of LSM compaction running on the GPU with
+`lsm-compaction` is a small demo of LSM compaction running on the GPU with
 [`massively`](https://github.com/akiradeveloper/massively).
 
 The goal is not to build a full production LSM tree. The goal is to make the
@@ -51,7 +51,7 @@ cargo run --release -- --compaction=gpu
 ```
 
 The program generates an infinite stream of random PUT/GET/DELETE commands and
-checks `tiny-lsm` against `BTreeMap`. A GET mismatch causes a panic.
+checks `lsm-compaction` against `BTreeMap`. A GET mismatch causes a panic.
 
 Every compaction prints the input size, output size, and elapsed time:
 

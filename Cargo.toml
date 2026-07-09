@@ -1,5 +1,5 @@
 [package]
-name = "tiny-lsm"
+name = "lsm-compaction"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
@@ -7,4 +7,4 @@ license = "MIT"
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
 cubecl = { git = "https://github.com/tracel-ai/cubecl.git", branch = "main", default-features = false, features = ["std", "stdlib", "wgpu"] }
-massively = { git = "https://github.com/akiradeveloper/massively.git", tag = "v0.59" }
+massively = { git = "https://github.com/akiradeveloper/massively.git", tag = "v0.60" }
