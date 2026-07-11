@@ -303,10 +303,6 @@ fn compact_gpu_inner(tables: Vec<SsTable>) -> Result<SsTable, massively::Error> 
         return Ok(SsTable::default());
     }
 
-    let input_len = input_entries
-        .try_into()
-        .expect("too many entries for massively device index");
-
     // Convert the CPU-friendly entries into SoA columns for GPU algorithms.
     let mut keys = Vec::with_capacity(input_entries);
     let mut seqs = Vec::with_capacity(input_entries);
@@ -323,26 +319,26 @@ fn compact_gpu_inner(tables: Vec<SsTable>) -> Result<SsTable, massively::Error> 
     }
 
     let exec = Executor::<WgpuRuntime>::new(WgpuDevice::DefaultDevice);
-    let keys = exec.to_device(&keys)?;
-    let seqs = exec.to_device(&seqs)?;
-    let values = exec.to_device(&values)?;
-    let is_deleted = exec.to_device(&is_deleted)?;
+    let keys = exec.to_device(&keys);
+    let seqs = exec.to_device(&seqs);
+    let values = exec.to_device(&values);
+    let is_deleted = exec.to_device(&is_deleted);
 
     // Sort by (key ascending, seq descending), so the newest entry for each key
     // becomes the first element in that key's run.
-    let sorted_keys = exec.full(input_len, 0_u32)?;
-    let sorted_key_seqs = exec.full(input_len, 0_u32)?;
-    let sorted_seqs = exec.full(input_len, 0_u32)?;
-    let sorted_values = exec.full(input_len, 0_u64)?;
-    let sorted_is_deleted = exec.full(input_len, 0_u32)?;
+    let sorted_keys = exec.alloc::<u32>(input_entries);
+    let sorted_key_seqs = exec.alloc::<u32>(input_entries);
+    let sorted_seqs = exec.alloc::<u32>(input_entries);
+    let sorted_values = exec.alloc::<u64>(input_entries);
+    let sorted_is_deleted = exec.alloc::<u32>(input_entries);
 
     massively::sort_by_key(
         &exec,
-        Zip2(keys.slice(..), seqs.slice(..)),
-        Zip3(seqs.slice(..), values.slice(..), is_deleted.slice(..)),
+        zip2(keys.slice(..), seqs.slice(..)),
+        zip3(seqs.slice(..), values.slice(..), is_deleted.slice(..)),
         EntryLess,
-        Zip2(sorted_keys.slice_mut(..), sorted_key_seqs.slice_mut(..)),
-        Zip3(
+        zip2(sorted_keys.slice_mut(..), sorted_key_seqs.slice_mut(..)),
+        zip3(
             sorted_seqs.slice_mut(..),
             sorted_values.slice_mut(..),
             sorted_is_deleted.slice_mut(..),
@@ -351,53 +347,53 @@ fn compact_gpu_inner(tables: Vec<SsTable>) -> Result<SsTable, massively::Error> 
 
     // Keep only the first entry for each key. After the sort above, that entry
     // is the visible state of the key.
-    let unique_keys = exec.full(input_len, 0_u32)?;
-    let unique_seqs = exec.full(input_len, 0_u32)?;
-    let unique_values = exec.full(input_len, 0_u64)?;
-    let unique_is_deleted = exec.full(input_len, 0_u32)?;
+    let unique_keys = exec.alloc::<u32>(input_entries);
+    let unique_seqs = exec.alloc::<u32>(input_entries);
+    let unique_values = exec.alloc::<u64>(input_entries);
+    let unique_is_deleted = exec.alloc::<u32>(input_entries);
 
     let unique_len = massively::unique_by_key(
         &exec,
-        Zip1(sorted_keys.slice(..)),
-        Zip3(
+        sorted_keys.slice(..),
+        zip3(
             sorted_seqs.slice(..),
             sorted_values.slice(..),
             sorted_is_deleted.slice(..),
         ),
         EqualU32,
-        Zip1(unique_keys.slice_mut(..)),
-        Zip3(
+        unique_keys.slice_mut(..),
+        zip3(
             unique_seqs.slice_mut(..),
             unique_values.slice_mut(..),
             unique_is_deleted.slice_mut(..),
         ),
     )?;
+    let unique_len = unique_len as usize;
 
     // Drop tombstones. If the latest entry for a key was a delete, the key is
     // absent from the compacted table.
-    let output_keys = exec.full(input_len, 0_u32)?;
-    let output_seqs = exec.full(input_len, 0_u32)?;
-    let output_values = exec.full(input_len, 0_u64)?;
-    let output_is_deleted = exec.full(input_len, 0_u32)?;
-    let delete_stencil =
-        massively::lazy::transform(Zip1(unique_is_deleted.slice(..unique_len)), IsDeletedFlag);
+    let output_keys = exec.alloc::<u32>(input_entries);
+    let output_seqs = exec.alloc::<u32>(input_entries);
+    let output_values = exec.alloc::<u64>(input_entries);
+    let output_is_deleted = exec.alloc::<u32>(input_entries);
 
     let output_len = massively::remove_where(
         &exec,
-        Zip4(
+        zip4(
             unique_keys.slice(..unique_len),
             unique_seqs.slice(..unique_len),
             unique_values.slice(..unique_len),
             unique_is_deleted.slice(..unique_len),
         ),
-        delete_stencil,
-        Zip4(
+        unique_is_deleted.slice(..unique_len),
+        zip4(
             output_keys.slice_mut(..),
             output_seqs.slice_mut(..),
             output_values.slice_mut(..),
             output_is_deleted.slice_mut(..),
         ),
     )?;
+    let output_len = output_len as usize;
 
     // Return the compacted entries to the CPU-side SSTable representation.
     let output_keys_host = exec.to_host(&output_keys.slice(..output_len))?;
@@ -417,7 +413,7 @@ fn compact_gpu_inner(tables: Vec<SsTable>) -> Result<SsTable, massively::Error> 
 struct EntryLess;
 
 #[cubecl::cube]
-impl massively::op::BinaryPredicateOp<WgpuRuntime, (u32, u32)> for EntryLess {
+impl massively::op::BinaryPredicateOp<(u32, u32)> for EntryLess {
     fn apply(lhs: (u32, u32), rhs: (u32, u32)) -> bool {
         lhs.0 < rhs.0 || (lhs.0 == rhs.0 && lhs.1 > rhs.1)
     }
@@ -426,20 +422,9 @@ impl massively::op::BinaryPredicateOp<WgpuRuntime, (u32, u32)> for EntryLess {
 struct EqualU32;
 
 #[cubecl::cube]
-impl massively::op::BinaryPredicateOp<WgpuRuntime, (u32,)> for EqualU32 {
-    fn apply(lhs: (u32,), rhs: (u32,)) -> bool {
-        lhs.0 == rhs.0
-    }
-}
-
-struct IsDeletedFlag;
-
-#[cubecl::cube]
-impl massively::op::UnaryOp<WgpuRuntime, (u32,)> for IsDeletedFlag {
-    type Output = bool;
-
-    fn apply(input: (u32,)) -> bool {
-        input.0 != 0
+impl massively::op::BinaryPredicateOp<u32> for EqualU32 {
+    fn apply(lhs: u32, rhs: u32) -> bool {
+        lhs == rhs
     }
 }
 
