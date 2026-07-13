@@ -1355,8 +1355,8 @@ dependencies = [
 
 [[package]]
 name = "massively"
-version = "0.74.0"
-source = "git+https://github.com/akiradeveloper/massively.git?tag=v0.74#ee2313018c2e341d0c25e8984bc3dfd1abf779d1"
+version = "0.76.0"
+source = "git+https://github.com/akiradeveloper/massively.git?tag=v0.76#9b451ecccf2bb2adec10ca94db2d17258ca339b4"
 dependencies = [
  "cubecl",
  "futures-lite",
