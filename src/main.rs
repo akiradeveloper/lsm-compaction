@@ -1,6 +1,6 @@
 use clap::{Parser, ValueEnum};
-use std::collections::BTreeMap;
 use lsm_compaction::{CompactionKind, CompactionStats, Kvs};
+use std::collections::BTreeMap;
 
 const BUF_CAPACITY: usize = 1_024;
 const COMPACTION_THRESHOLD: usize = 10_000;

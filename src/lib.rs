@@ -326,33 +326,18 @@ fn compact_gpu_inner(tables: Vec<SsTable>) -> Result<SsTable, massively::Error> 
 
     // Sort by (key ascending, seq descending), so the newest entry for each key
     // becomes the first element in that key's run.
-    let sorted_keys = exec.alloc::<u32>(input_entries);
-    let sorted_key_seqs = exec.alloc::<u32>(input_entries);
-    let sorted_seqs = exec.alloc::<u32>(input_entries);
-    let sorted_values = exec.alloc::<u64>(input_entries);
-    let sorted_is_deleted = exec.alloc::<u32>(input_entries);
-
-    massively::sort_by_key(
+    let (sorted_key_columns, sorted_value_columns) = massively::vector::sort_by_key(
         &exec,
         zip2(keys.slice(..), seqs.slice(..)),
         zip3(seqs.slice(..), values.slice(..), is_deleted.slice(..)),
         EntryLess,
-        zip2(sorted_keys.slice_mut(..), sorted_key_seqs.slice_mut(..)),
-        zip3(
-            sorted_seqs.slice_mut(..),
-            sorted_values.slice_mut(..),
-            sorted_is_deleted.slice_mut(..),
-        ),
     )?;
+    let (sorted_keys, _sorted_key_seqs) = unzip2(sorted_key_columns);
+    let (sorted_seqs, sorted_values, sorted_is_deleted) = unzip3(sorted_value_columns);
 
     // Keep only the first entry for each key. After the sort above, that entry
     // is the visible state of the key.
-    let unique_keys = exec.alloc::<u32>(input_entries);
-    let unique_seqs = exec.alloc::<u32>(input_entries);
-    let unique_values = exec.alloc::<u64>(input_entries);
-    let unique_is_deleted = exec.alloc::<u32>(input_entries);
-
-    let unique_len = massively::unique_by_key(
+    let (unique_keys, unique_value_columns) = massively::vector::unique_by_key(
         &exec,
         sorted_keys.slice(..),
         zip3(
@@ -361,44 +346,27 @@ fn compact_gpu_inner(tables: Vec<SsTable>) -> Result<SsTable, massively::Error> 
             sorted_is_deleted.slice(..),
         ),
         EqualU32,
-        unique_keys.slice_mut(..),
-        zip3(
-            unique_seqs.slice_mut(..),
-            unique_values.slice_mut(..),
-            unique_is_deleted.slice_mut(..),
-        ),
     )?;
-    let unique_len = unique_len as usize;
+    let (unique_seqs, unique_values, unique_is_deleted) = unzip3(unique_value_columns);
 
     // Drop tombstones. If the latest entry for a key was a delete, the key is
     // absent from the compacted table.
-    let output_keys = exec.alloc::<u32>(input_entries);
-    let output_seqs = exec.alloc::<u32>(input_entries);
-    let output_values = exec.alloc::<u64>(input_entries);
-    let output_is_deleted = exec.alloc::<u32>(input_entries);
-
-    let output_len = massively::remove_where(
+    let output_columns = massively::vector::remove_where(
         &exec,
         zip4(
-            unique_keys.slice(..unique_len),
-            unique_seqs.slice(..unique_len),
-            unique_values.slice(..unique_len),
-            unique_is_deleted.slice(..unique_len),
+            unique_keys.slice(..),
+            unique_seqs.slice(..),
+            unique_values.slice(..),
+            unique_is_deleted.slice(..),
         ),
-        unique_is_deleted.slice(..unique_len),
-        zip4(
-            output_keys.slice_mut(..),
-            output_seqs.slice_mut(..),
-            output_values.slice_mut(..),
-            output_is_deleted.slice_mut(..),
-        ),
+        unique_is_deleted.slice(..),
     )?;
-    let output_len = output_len as usize;
+    let (output_keys, output_seqs, output_values, _output_is_deleted) = unzip4(output_columns);
 
     // Return the compacted entries to the CPU-side SSTable representation.
-    let output_keys_host = exec.to_host(&output_keys.slice(..output_len))?;
-    let output_seqs_host = exec.to_host(&output_seqs.slice(..output_len))?;
-    let output_values_host = exec.to_host(&output_values.slice(..output_len))?;
+    let output_keys_host = exec.to_host(&output_keys)?;
+    let output_seqs_host = exec.to_host(&output_seqs)?;
+    let output_values_host = exec.to_host(&output_values)?;
 
     let entries = output_keys_host
         .into_iter()

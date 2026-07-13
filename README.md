@@ -82,7 +82,7 @@ Main options:
 - DELETE is represented as a tombstone with `value = None`.
 - `Kvs` creates a new SSTable whenever the buffer fills.
 - When the SSTable count reaches the threshold, all SSTables are compacted into one.
-- The GPU implementation uses `massively v0.67`.
+- The GPU implementation uses `massively v0.74`.
 
 ## Tests
 
